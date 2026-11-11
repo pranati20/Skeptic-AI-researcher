@@ -75,6 +75,38 @@ It's not perfect, and I'd rather say so up front:
 - **It can't adjust for things that aren't in the data.** When I hid two market factors from it, half of the fake signals got through.
 - **The benchmark is my own simulation.** Real data is messier.
 
+## The methods under the hood
+
+None of these algorithms are new. The interesting part was working out which one fits each job, and wiring them together so they check an AI's whole search instead of one result.
+
+**Making the "nothing real is going on" copies of the data**
+- **Stationary bootstrap** (Politis and Romano): rebuilds a trading history from random chunks of real days, so calm and wild periods stay together but any real signal is scrambled. This is the default for market data.
+- **Sign-flipping**: randomly flips each day's gains and losses. The volatility pattern stays, but any consistent edge disappears.
+- **Label shuffling** (permutation test): for A/B tests and health data, it reshuffles who got the treatment. When there are confounders, it only shuffles within groups like the same age band, so the comparison stays like with like.
+- **Circular shifts and IAAFT surrogates**: for scrambling a feature against its outcome. The feature keeps its own rhythm, but its timing relative to the outcome becomes random.
+
+**Judging the whole search**
+- **Max-statistic test / White's Reality Check**: in each fake copy, keep only the best result luck produced. A real finding has to beat those.
+- **Romano-Wolf step-down**: once the strongest finding is confirmed, set it aside and re-check the rest. That way more than one real finding can get through without the bar becoming unfairly high.
+- **Alpha-investing** (Foster and Stine): a running "credibility budget". Every round of guessing spends some of it and every confirmed discovery earns some back, so a swarm that keeps guessing has to clear a higher bar.
+- **Storey q-values**: turn the results into the confidence score shown in the app. It's best read as an evidence ranking, not an exact probability.
+
+**Attacking each finding**
+- **Factor regression**: checks whether a trading signal is just riding the market, small companies, cheap stocks or momentum. If its return disappears once those are accounted for, it was never a real edge.
+- **Cost, concentration and regime checks**: re-run the signal after trading costs, without its best 1% of days, and year by year.
+- **Point-in-time re-run**: re-tests a stock idea including companies that later went bust, to catch survivorship bias.
+- **Confounder detection**: Cramér's V and the correlation ratio find columns linked to both the cause and the effect (like age in the supplement example). Those columns are then held fixed.
+- **Simpson's paradox check**: compares the pooled effect with the effect inside each group, and flags it if the direction flips.
+- **Peeking test**: a permutation test on the best result across every time the experimenter checked, not just the final check.
+- **Placebo test**: does a random choice (like betting on a random side) do just as well?
+- **Parameter fragility**: nudges the idea's settings (e.g. 20 days becomes 17 or 24) and checks that it still works.
+
+**Being honest about uncertainty**
+- **Power analysis**: when the answer is "can't tell yet", estimates how much more data would settle it.
+- **SHA-256 commitment**: locks in each discovery's exact definition before it's scored on held-back data, so it can't be quietly adjusted afterwards.
+
+**What Skeptic is compared against in the benchmark:** the naive p < 0.05 rule, a single train/test split, Bonferroni, Benjamini-Hochberg, Hansen's SPA and the Deflated Sharpe Ratio (Bailey and López de Prado).
+
 ## Where the AI is (and isn't) used
 
 The statistics don't use an LLM at all. The scrambled copies, the record of tries and the backtests are plain Python (numpy and scipy), so they're fast, cheap and repeatable. LLMs are used for the parts that need language: coming up with ideas, reviewing them for mistakes, reading research papers and writing the final answer in plain English.
@@ -108,9 +140,7 @@ To use real Claude, set `SKEPTIC_USE_LLM=1` and `ANTHROPIC_API_KEY`. To keep it 
 
 ## Built with
 
-Python, FastAPI and WebSockets on the backend, with numpy, scipy, pandas and SQLite. React, TypeScript, Tailwind and Recharts on the frontend. Tests use pytest, plus a Playwright check of the UI.
-
-The statistical methods are established ones: White's Reality Check, Romano-Wolf, Hansen's SPA, the Deflated Sharpe Ratio, Benjamini-Hochberg and alpha-investing. What I added is putting them together so they check an AI agent's entire search, and then measuring whether that actually works.
+Python, FastAPI and WebSockets on the backend, with numpy, scipy, pandas, statsmodels and SQLite. React, TypeScript, Tailwind and Recharts on the frontend. Tests use pytest (including tests with known right answers for the statistics), plus a Playwright check of the UI.
 
 ---
 
