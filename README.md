@@ -1,162 +1,117 @@
-# Skeptic: an AI researcher that checks its own luck
+# Skeptic
 
-> *Finding patterns in data is easy. Knowing which ones to trust is hard.*
+An AI researcher that checks whether its own discoveries are real or just luck.
 
-Give an AI a dataset and ask it to find something interesting, and it will. Try 100 ideas and about 5 will look "statistically significant" by pure chance. An AI agent can try thousands of ideas in a minute, so it can produce convincing fake discoveries faster than any human ever could.
+## Why I built this
 
-**Skeptic is an AI researcher built to catch itself doing this.** A swarm of agents hunts for patterns. Then a "Court" tries hard to prove each pattern is just luck, and only the ones that survive are called discoveries.
+If you test enough ideas on a dataset, some of them will look good by accident. Test 100 random ideas and about 5 will pass the usual "p < 0.05" bar even if none of them mean anything.
 
-It works on stock signals, sports betting, A/B tests, health claims, or any CSV you upload. You can also just type a question and it finds a public dataset to answer it.
+People already fall into this trap. AI agents fall into it much faster, because they can try thousands of ideas in a minute and then confidently report the ones that happened to work. I wanted to build an agent that does the opposite: one that assumes every finding is luck until it can show otherwise.
 
----
+This started as a hackathon project for the Brevan Howard challenge: *"Finding patterns in data is easy; knowing which ones to trust is hard."*
 
-## The problem with naive AI researchers
+## What it does
 
-| What a naive AI researcher does | Why it goes wrong | What Skeptic does instead |
-|---|---|---|
-| Tries 141 trading ideas and reports the 59 with p < 0.05 | With that many tries, plenty of noise will clear p < 0.05 | Logs **every** idea in a ledger and tests the winner against the best result luck produced across the *whole* search |
-| Reports only the winning idea | Hides how many ideas were tried, which is the main thing a reader needs to know | Gives a "confession" with every result: *"I tried 141 ideas to find this. Luck alone would do this well 0.3% of the time."* |
-| Picks whichever cleaning step makes the result look best | Each data-cleaning choice is another hidden roll of the dice | Re-runs the search under **every** cleaning path, and luck gets to pick the best one too |
-| "Supplement users are less healthy" (true in the raw data) | Older people take more supplements and are less healthy. Hold age fixed and the effect **reverses** (Simpson's paradox) | Detects confounders automatically, compares like with like, and labels non-experimental results "association, not cause" |
-| A/B test: "variant B wins!" after checking the results 10 times | Peeking and stopping at the first good-looking moment inflates false wins | A peeking-aware test: an early win counts only if the final data still clears an adjusted bar |
-| Backtest says +$217,598 | Built on lookahead, survivorship bias, ignored trading costs, or plain market beta | Skeptic checks for each of these, re-runs the idea to confirm, and shows what the money really would have been |
-| "This betting strategy has +37% ROI" | Betting on a random side earns the same | A placebo test kills it |
+You give it data (or just a question, and it goes and finds a public dataset). A group of AI agents comes up with ideas and tests them. Then a second stage, which I call the Court, tries to knock each idea down.
 
-Every claim ends with one of three honest verdicts: **DISCOVERY**, **LUCK**, or **CAN'T TELL YET** (with an estimate of how much more data would settle it).
+Every idea ends up with one of three answers:
 
----
+- **Discovery**: it survived everything.
+- **Luck**: it didn't.
+- **Can't tell yet**: there isn't enough data, and it tells you roughly how much more you'd need.
 
-## Does it actually work? (ground-truth benchmark)
+## A few examples
 
-Saying "trust me" isn't proof. So we built a simulated market where **we know the answer**. It has 500 candidate signals over 200 assets:
+**Stock signals.** The AI tries 141 trading ideas on simulated market data. A naive approach (keep anything with p < 0.05) reports 59 "discoveries". Skeptic keeps 10. Because the data is simulated, we know the truth, and all 10 of those are real.
 
-- **5** are real
-- **10** are decoys that only look good because they track known market factors
-- **5** are traps (lookahead or survivorship bias)
-- the rest are noise, with realistic fat tails and volatility clustering
+**The supplement trap.** In one dataset, people who take supplements look less healthy than people who don't. But older people take more supplements and are also less healthy. Once you compare people of the same age, supplements actually help. Skeptic spots that age is mixed up with both, compares like with like, and gets the right answer. It does this even if you don't tell it to look at age.
 
-Every method is run on 20 random seeds:
+**A/B test peeking.** Someone checks their experiment results 10 times and stops as soon as variant B looks like it's winning. That makes false wins much more likely. Skeptic accounts for the peeking, and most of those early wins don't survive.
+
+**Sports betting.** A strategy shows +37% return. Skeptic tries betting on a random side instead and gets the same return, so the strategy wasn't doing anything.
+
+**Real stocks, 2010 to 2025.** Nothing survives, and Skeptic explains why: the price data only includes companies that still exist today, which makes everything look better than it really was.
+
+## How it decides
+
+The main idea is simple. Don't ask "does the best idea look good?" Ask "if nothing real were going on, and I searched just as hard, how good would the best result look?"
+
+To answer that, Skeptic makes a few hundred fake copies of the data where any real pattern has been scrambled away, but the messiness of real data (big jumps, calm and wild periods) is kept. It runs the exact same search on every copy and records the best result luck produced each time. A real finding has to beat that.
+
+After that, each surviving idea gets attacked from different angles:
+
+- Did it accidentally use information from the future?
+- Does it disappear after trading costs?
+- Did it only work in one lucky year?
+- Is it just tracking the overall market?
+- Does it only hold for companies that survived?
+- Does the effect flip when you compare like with like?
+
+Finally, it's tested on a slice of data the search never touched. If it goes the other way there, it doesn't count.
+
+It also keeps a record of everything it tried, including small choices like how the data was cleaned. Each result comes with a line like: *"I tried 141 ideas to find this. Luck alone would do this well 0.3% of the time."*
+
+## Does it work?
+
+I built a test market where I know the right answers: 500 signals, of which 5 are real, 10 are fakes that just follow the market, 5 are traps, and the rest are noise. Then I ran each method 20 times.
 
 <!--BENCH-->
-| Method | Claimed discoveries | Actually real | False | False-discovery rate |
-|---|---|---|---|---|
-| Naive analyst (p < 0.05) | 50.3 | 5.0 | 45.3 | **90%** |
-| Benjamini-Hochberg | 16.2 | 4.7 | 11.6 | 71% |
-| Single train/test split | 13.5 | 4.3 | 9.2 | 69% |
-| Bonferroni | 12.1 | 4.3 | 7.8 | 64% |
-| Deflated Sharpe ratio | 5.2 | 2.5 | 2.7 | 52% |
-| **Skeptic (full Court)** | **3.9** | **3.85** | **0.0** | **0%** |
+| Method | Claimed | Actually real | Wrong |
+|---|---|---|---|
+| Naive (p < 0.05) | 50.3 | 5.0 | 45.3 |
+| Benjamini-Hochberg | 16.2 | 4.7 | 11.6 |
+| Train/test split | 13.5 | 4.3 | 9.2 |
+| Bonferroni | 12.1 | 4.3 | 7.8 |
+| Deflated Sharpe | 5.2 | 2.5 | 2.7 |
+| Skeptic | 3.9 | 3.85 | 0.0 |
 <!--/BENCH-->
 
-**The naive analyst is wrong 9 times out of 10. Skeptic made zero false discoveries in 20 runs and still found 77% of the real signals.**
+The naive approach is wrong about 9 times out of 10. Skeptic didn't make a single false claim across the 20 runs, and it still found about 77% of the real signals.
 
-Being honest about the limits:
-- **0 observed false discoveries doesn't mean 0 risk.** Across ~80 claims, the 95% upper bound on the error rate is about 4%.
-- **Safety costs power.** Weak real signals (Sharpe below ~2) are often called LUCK or CAN'T TELL YET. The benchmark measures exactly which check rejects real signals, so we know what to tune next.
-- **It can't see what it isn't given.** If a confounder is missing from the data, a decoy can pass (measured: 5 of 10 decoys pass when two factors are hidden).
+It's not perfect, and I'd rather say so up front:
 
-Re-run it yourself: `python -m skeptic.backend.benchmark.run_benchmark --seeds 20`
+- **It's cautious.** Weak real effects often get labelled "luck" or "can't tell yet". That's the trade-off for not fooling itself.
+- **Zero mistakes in 20 runs doesn't mean it never makes mistakes.** The honest upper bound is around 4%.
+- **It can't adjust for things that aren't in the data.** When I hid two market factors from it, half of the fake signals got through.
+- **The benchmark is my own simulation.** Real data is messier.
 
----
+## Where the AI is (and isn't) used
 
-## How it works
+The statistics don't use an LLM at all. The scrambled copies, the record of tries and the backtests are plain Python (numpy and scipy), so they're fast, cheap and repeatable. LLMs are used for the parts that need language: coming up with ideas, reviewing them for mistakes, reading research papers and writing the final answer in plain English.
 
-```
- Question / dataset
-        │
-   Data Scout ── finds a public dataset if you only typed a question
-        │
-     Cleaner ── every cleaning choice is logged as a "forking path"
-        │
- Researcher swarm ── 6 agent families propose ideas as structured JSON in a safe formula language (no eval)
-        │
-     LEDGER ── every idea ever tried, by every agent
-        │
- Null worlds ── re-run the ENTIRE search 300× on data where nothing is real; record the best luck produced
-        │
- Credibility budget ── online error control: the more the swarm guesses, the higher the bar gets
-        │
-   Skeptics ── adversarial checks: leakage · survivorship · costs · regimes · concentration · hidden beta · Simpson · peeking · placebo
-        │
-     Judge ── verdict + confidence + "how much more data" + a commitment hash
-        │
- Fresh-data check ── scored on data the search never saw; a claim that reverses is downgraded
-        │
- Plain-English answer ── written only from findings that survived
-```
+Everything runs offline without an API key, using a stand-in model. Plugging in Claude is optional.
 
-**Design principle: the statistics do the heavy lifting, and LLMs do only what statistics can't.** The null worlds, ledger, multiple-testing math and backtests are plain numpy/scipy and cost zero tokens. LLMs propose ideas, review specs, read papers and write the explanation. Everything runs offline with a mock LLM. Claude is optional.
+## Running it
 
-### The core idea, in one paragraph
-Don't ask "does the winning idea look good?" Ask **"would luck alone, searching just as hard, have found something this good?"** Skeptic answers that directly. It builds many fake versions of the data where any real signal is destroyed but the messy structure (fat tails, volatility clusters, correlations) is kept. It runs the *exact same search* in each one and records the best result luck produced. A finding only counts if it beats that. This is White's Reality Check and Romano-Wolf max-statistic testing, applied to an AI agent's whole search loop.
-
----
-
-## What makes it more than a stats script
-
-- **Audits the search, not the result.** The ledger counts every idea, every agent and every cleaning choice. That count goes straight into the math, not just into a footnote.
-- **Adversarial by design.** Skeptic agents actively try to kill each finding. Each dead idea goes to a "graveyard" with its cause of death, like *"died of beta (it was never alpha)"* or *"died after costs"*.
-- **Knows the difference between correlation and causation.** Non-experimental data is adjusted for automatically detected confounders and labelled as an association.
-- **Tests on data it never saw.** Each discovery is locked with a SHA-256 hash, then scored on a held-out slice. If it reverses there, it isn't a discovery.
-- **Says "I don't know."** CAN'T TELL YET comes with a power estimate and how much more data would be needed.
-- **Shows the cost of being fooled.** The "Cost of Illusion" chart puts the backtest's promise next to what the strategy really delivers.
-- **Grounded in literature.** A Librarian agent pulls real papers (Crossref, arXiv, OpenAlex) and checks whether they actually apply to this data, e.g. whether the sample overlaps or the effect decayed after publication.
-- **Honest guardrails everywhere.** No trading advice, simulated data is labelled, and the failure modes are measured and shown.
-
----
-
-## Try it
-
-The package imports itself as `skeptic`, so clone it into a folder with that name:
+The code expects to live in a folder called `skeptic`, so clone it like this:
 
 ```bash
 git clone https://github.com/pranati20/Skeptic-AI-researcher.git skeptic
 python -m venv .venv
-.venv\Scripts\activate                 # macOS/Linux: source .venv/bin/activate
+.venv\Scripts\activate          # Mac/Linux: source .venv/bin/activate
 pip install -r skeptic/requirements.txt
 
-python -m uvicorn skeptic.backend.app:app --port 8000   # open http://localhost:8000
-python -m skeptic.demo                                   # 3-minute narrated story in the terminal
-python -m pytest skeptic/tests -q                        # 105 tests, including known-answer statistics
+python -m uvicorn skeptic.backend.app:app --port 8000
 ```
 
-- No API key needed. To use real Claude, set `SKEPTIC_USE_LLM=1` and `ANTHROPIC_API_KEY=...`.
-- To turn off all network use, set `SKEPTIC_OFFLINE=1`.
-- The UI is pre-built in `frontend/dist`. To work on it: `cd skeptic/frontend && npm install && npm run dev`.
+Then open http://localhost:8000.
 
-### Example scenarios in the app
-| Scenario | What it shows |
-|---|---|
-| Stock-picking AI (simulated) | The naive analyst claims 59 discoveries. Skeptic keeps 10, and all 10 are real |
-| Real stocks 2010–2025 | 117 large caps. Nothing survives, and the app explains why (survivor-only universe) |
-| Sports betting | +37% ROI, but a random side does just as well |
-| A/B test | Peeking kills early "wins". One real segment effect is found |
-| Health claim | Simpson's paradox: the raw effect reverses once age is held fixed |
-| Your CSV / your question | The same Court on your own data, or on a public dataset found for your question |
+Other useful commands:
+
+```bash
+python -m skeptic.demo                                    # a short guided story in the terminal
+python -m pytest skeptic/tests -q                         # run the tests
+python -m skeptic.backend.benchmark.run_benchmark --seeds 20   # re-run the benchmark
+```
+
+To use real Claude, set `SKEPTIC_USE_LLM=1` and `ANTHROPIC_API_KEY`. To keep it fully offline, set `SKEPTIC_OFFLINE=1`.
+
+## Built with
+
+Python, FastAPI and WebSockets on the backend, with numpy, scipy, pandas and SQLite. React, TypeScript, Tailwind and Recharts on the frontend. Tests use pytest, plus a Playwright check of the UI.
+
+The statistical methods are established ones: White's Reality Check, Romano-Wolf, Hansen's SPA, the Deflated Sharpe Ratio, Benjamini-Hochberg and alpha-investing. What I added is putting them together so they check an AI agent's entire search, and then measuring whether that actually works.
 
 ---
 
-## Tech stack
-**Backend:** Python, FastAPI + WebSockets (live event stream), numpy/scipy/pandas/statsmodels, SQLite ledger, Anthropic SDK with prompt-hash disk caching and a live token/cost meter.
-**Frontend:** React, TypeScript, Vite, Tailwind, framer-motion, Recharts.
-**Testing:** pytest (known-answer statistical tests, DSL safety, every Skeptic check, end-to-end Court runs) plus a Playwright UI smoke test.
-
-**Methods used:** White's Reality Check, Hansen's SPA, Romano-Wolf step-down, Deflated Sharpe Ratio, Benjamini-Hochberg, Foster-Stine alpha-investing, stationary bootstrap, IAAFT surrogates, stratified permutation tests. All are known methods. The contribution is wiring them into one system that audits an autonomous agent's own search, and measuring that it works.
-
----
-
-## Repo layout
-```
-backend/
-  app.py, runner.py        API + scenario orchestration (live event stream)
-  court/                   null worlds, multiple testing, credibility budget, judge, power, pre-registration
-  prosecutors/             the Skeptic checks
-  hunters/, features_dsl.py  researcher agents + safe formula language
-  adapters/                markets, real equities, betting, tabular (A/B, health, uploads)
-  datascout.py, literature.py, conclude.py   find data, find papers, write the answer
-  benchmark/               the ground-truth proof
-frontend/                  React UI
-tests/                     105 tests
-```
-
-*Skeptic reduces false discoveries and measures uncertainty. It doesn't prove anything is true, and nothing here is financial or medical advice.*
+None of this is financial or medical advice. Skeptic is good at telling you when something is probably luck. It can't prove that something is true.
